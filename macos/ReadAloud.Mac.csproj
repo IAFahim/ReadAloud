@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- macOS port of ReadAloud. Plain net10.0 console exe: no WinForms, no D-Bus, no AppKit.
+       Everything platform-specific is a child process (say, osascript, pbpaste, pbcopy, killall),
+       so this project compiles and its pure logic self-checks run on ANY OS.
+       It has only ever been COMPILED on Linux — see macos/README.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- keep the published binary called "ReadAloud": StopPrevious() identifies its own kind by
+         process name, and the hook/shortcut commands read better without a ".Mac" in them -->
+    <AssemblyName>ReadAloud</AssemblyName>
+    <DefaultItemExcludes>$(DefaultItemExcludes);publish/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- shared with the Linux build: same ~/.config/readaloud/settings.json, one source of truth -->
+    <Compile Include="../Settings.cs" Link="Settings.cs" />
+  </ItemGroup>
+</Project>
