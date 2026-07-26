@@ -327,9 +327,9 @@ static class Tray
 
             case "AboutToShow":
             {
-                Reopened();
+                bool changed = RefreshFromDisk();
                 using var w = ctx.CreateReplyWriter("b");
-                w.WriteBool(true); // always re-fetch: the file may have changed under us
+                w.WriteBool(changed); // true only when the file really moved under us
                 ctx.Reply(w.CreateMessage());
                 return;
             }
@@ -338,9 +338,9 @@ static class Tray
             {
                 Reader r = m.GetBodyReader();
                 int[] ids = r.ReadArrayOfInt32();
-                Reopened();
+                bool changed = RefreshFromDisk();
                 using var w = ctx.CreateReplyWriter("aiai");
-                w.WriteArray(ids);              // all of them want an update
+                w.WriteArray(changed ? ids : Array.Empty<int>());
                 w.WriteArray(Array.Empty<int>()); // none of them errored
                 ctx.Reply(w.CreateMessage());
                 return;
@@ -421,12 +421,28 @@ static class Tray
         change(s);
         s.Save();
         cfg = s;
-        Reopened(); // tell any open menu the ticks moved
+        SignalLayoutUpdated(); // a click really changed state: tell any open menu the ticks moved
     }
 
-    static void Reopened()
+    // Reload from disk; only announce a layout change when the tick-relevant state truly moved.
+    // Announcing on every AboutToShow makes gnome-shell rebuild the menu mid-hover, which kills
+    // submenus before they can open — that was the "Speed/Engine won't expand" bug.
+    static bool RefreshFromDisk()
     {
-        cfg = Settings.Load();
+        Settings fresh = Settings.Load();
+        bool changed = fresh.MuteClaude != cfg.MuteClaude
+                       || fresh.Engine != cfg.Engine
+                       || Math.Abs(fresh.Speed - cfg.Speed) > 0.001;
+        cfg = fresh;
+        if (changed)
+        {
+            SignalLayoutUpdated();
+        }
+        return changed;
+    }
+
+    static void SignalLayoutUpdated()
+    {
         revision++;
         try
         {
