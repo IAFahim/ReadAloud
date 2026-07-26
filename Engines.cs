@@ -17,7 +17,6 @@ public sealed class GoogleEngine : ISpeechEngine
     public bool Speak(string text, Settings s)
     {
         var chunks = Chunks(text).ToList();
-        string filter = Filter(s.Speed, s.Pitch);
 
         using var http = new HttpClient();
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
@@ -47,6 +46,11 @@ public sealed class GoogleEngine : ISpeechEngine
 
             string f = Path.Combine(Path.GetTempPath(), $"readaloud-{i}.mp3");
             File.WriteAllBytes(f, mp3);
+
+            // re-read speed/pitch per chunk so a tray click lands at the NEXT sentence,
+            // even in the middle of a long read — not on some future read
+            Settings live = Settings.Load();
+            string filter = Filter(live.Speed, live.Pitch);
             string[] play = ["-nodisp", "-autoexit", "-loglevel", "quiet", f];
             Sh.Run("ffplay", filter.Length == 0 ? play : ["-af", filter, .. play]);
         }

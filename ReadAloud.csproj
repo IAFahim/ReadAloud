@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- keep build junk out of the compile glob even when obj/bin are redirected elsewhere -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**;bin-tray/**;obj-tray/**;publish/**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**;bin-tray/**;obj-tray/**;publish/**;windows/**;macos/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
