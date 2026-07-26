@@ -44,6 +44,8 @@ else
 fi
 
 echo "Done. $BINDING reads the current selection; the top-bar icon has the rest."
+id -nG | tr ' ' '\n' | grep -qx input || \
+  echo "Wiggle-to-read needs input access: sudo usermod -aG input \$USER   (then log out and back in)"
 echo
 echo "For Claude Code auto-speak, add this entry to the Stop hooks in ~/.claude/settings.json:"
 echo "  { \"hooks\": [ { \"type\": \"command\", \"command\": \"$PWD/publish/ReadAloud --claude-hook\", \"timeout\": 600, \"async\": true } ] }"

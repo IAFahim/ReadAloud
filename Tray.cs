@@ -38,8 +38,9 @@ static class Tray
             new(4, 0, "Engine"),
             new(41, 4, "Google voice", "radio", () => cfg.Engine == "google", () => Edit(s => s.Engine = "google")),
             new(42, 4, "Offline voice", "radio", () => cfg.Engine == "spd", () => Edit(s => s.Engine = "spd")),
-            new(5, 0, "Open settings file", Click: () => Start("xdg-open", Settings.FilePath)),
-            new(6, 0, "Quit", Click: Quit),
+            new(5, 0, "Wiggle to read", "checkmark", () => cfg.WiggleEnabled, () => Edit(s => s.WiggleEnabled = !s.WiggleEnabled)),
+            new(6, 0, "Open settings file", Click: () => Start("xdg-open", Settings.FilePath)),
+            new(7, 0, "Quit", Click: Quit),
         };
 
         int id = 31;
@@ -52,7 +53,11 @@ static class Tray
         return menu.OrderBy(n => n.Id).ToArray(); // ids are the display order inside each parent
     }
 
-    public static void Run() => RunAsync().GetAwaiter().GetResult();
+    public static void Run()
+    {
+        Wiggle.Start(); // the tray is the resident process, so it hosts the wiggle watcher too
+        RunAsync().GetAwaiter().GetResult();
+    }
 
     static async Task RunAsync()
     {

@@ -1,6 +1,6 @@
 # ReadAloud
 
-Select text anywhere, press **Ctrl+Super+S**, hear it. Free and local (speech-dispatcher).
+Select text anywhere, press **Ctrl+Super+S** — or just **wiggle the mouse** — and hear it.
 
 - Press again with a new selection: interrupts and reads the new one.
 - Press with nothing selected: stops talking.
@@ -19,6 +19,8 @@ A speaker icon sits in the GNOME top bar (`ReadAloud --tray`, started at login b
 - **Mute Claude replies** — tick to stop auto-reading Claude Code answers.
 - **Speed** — 1.0x to 3.0x, the current one is ticked.
 - **Engine** — Google voice (needs internet) or Offline voice.
+- **Wiggle to read** — select text, shake the mouse left-right, it speaks (with a little pop).
+  Needs one-time access: `sudo usermod -aG input $USER`, then log out and back in.
 - **Open settings file** — opens `~/.config/readaloud/settings.json` in your editor.
 - **Quit** — removes the icon until next login.
 

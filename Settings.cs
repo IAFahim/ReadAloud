@@ -10,6 +10,7 @@ public sealed class Settings
     public string GoogleLang { get; set; } = "en";
     public int SpdRate { get; set; } = 0;     // -100..100, spd engine only
     public bool MuteClaude { get; set; }      // silence the Claude Code auto-read hook
+    public bool WiggleEnabled { get; set; } = true; // shake the mouse over a selection to read it
     public string Shortcut { get; set; } = "<Control><Super>s";
 
     public static string Dir =>

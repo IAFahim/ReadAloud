@@ -29,6 +29,11 @@ if (args.Contains("--stop"))
     return;
 }
 
+if (args.Contains("--wiggle-test"))
+{
+    Environment.Exit(WiggleDetector.SelfCheck() ? 0 : 1);
+}
+
 if (args.Contains("--print-filter"))
 {
     int at = Array.IndexOf(args, "--print-filter");
