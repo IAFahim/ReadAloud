@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- WinExe: no console window flashes when Windows starts this at login -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- NotifyIcon (tray), Clipboard (selection capture), NativeWindow (hotkey message loop) -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>ReadAloud</AssemblyName>
+    <RootNamespace>ReadAloud</RootNamespace>
+
+    <!-- built and verified on LINUX; this is what makes a net10.0-windows build legal there -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <!-- one file to copy around: ReadAloud.exe + the .NET 10 runtime that setup.ps1 installs -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+
+    <!-- Every .cs in windows/ is wrapped in #if READALOUD_WINDOWS. The repo-root ReadAloud.csproj
+         compiles **/*.cs, which sweeps this folder up too; the guard makes those files empty for
+         the Linux build instead of breaking it. Only this project defines the symbol. -->
+    <DefineConstants>$(DefineConstants);READALOUD_WINDOWS</DefineConstants>
+
+    <!-- ...and that same root glob would also sweep THIS project's generated obj/*.cs into the
+         Linux build (one WinForms global-using is enough to break it). So generate none of them.
+         Program.cs declares the global usings and the SupportedOSPlatform attribute by hand;
+         nothing needs the TargetFramework attribute. Keep windows/obj free of *.cs. -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SAPI: offline, built into Windows, no ffplay/spd-say/network needed -->
+    <PackageReference Include="System.Speech" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- shared with the Linux build, byte for byte: same settings file, same wiggle maths.
+         Wiggle.cs's Linux-only `Wiggle` class just compiles unused here. -->
+    <Compile Include="../Settings.cs" />
+    <Compile Include="../Wiggle.cs" />
+  </ItemGroup>
+</Project>

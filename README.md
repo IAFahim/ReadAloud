@@ -2,6 +2,18 @@
 
 Select text anywhere, press **Ctrl+Super+S** — or just **wiggle the mouse** — and hear it.
 
+Three platforms, each the native way:
+
+- **Linux (this folder)** — the original, fully tested: Google voice + offline fallback,
+  top-bar tray, wiggle, Claude Code auto-read.
+- **[windows/](windows/)** — built-in Windows voice, system-tray icon, Ctrl+Win+S, wiggle
+  via mouse hook. One-liner: `irm https://raw.githubusercontent.com/IAFahim/ReadAloud/master/windows/setup.ps1 | iex`
+- **[macos/](macos/)** — built-in `say` voices, clipboard-safe Cmd+C capture.
+  One-liner: `bash <(curl -fsSL https://raw.githubusercontent.com/IAFahim/ReadAloud/master/macos/setup-mac.sh)`
+
+The ports compile clean and pass their logic self-checks, but were written on Linux —
+**not yet run on real Windows/macOS**. First thing to run there: `ReadAloud --self-check`.
+
 - Press again with a new selection: interrupts and reads the new one.
 - Press with nothing selected: stops talking.
 - Claude Code replies are auto-spoken: a Stop hook in `~/.claude/settings.json` runs
