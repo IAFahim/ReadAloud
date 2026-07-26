@@ -10,9 +10,25 @@ Select text anywhere, press **Ctrl+Super+S**, hear it. Free and local (speech-di
 - Voice is the free Google Translate voice (needs internet); falls back to the offline
   spd-say robot automatically when offline.
 
+## Top-bar controls
+
+A speaker icon sits in the GNOME top bar (`ReadAloud --tray`, started at login by
+`~/.config/autostart/readaloud-tray.desktop`). Click it for:
+
+- **Stop speaking** — shuts the voice up right now.
+- **Mute Claude replies** — tick to stop auto-reading Claude Code answers.
+- **Speed** — 1.0x to 3.0x, the current one is ticked.
+- **Engine** — Google voice (needs internet) or Offline voice.
+- **Open settings file** — opens `~/.config/readaloud/settings.json` in your editor.
+- **Quit** — removes the icon until next login.
+
+Every click writes that file, and every read picks it up, so nothing needs a restart.
+Edit the file by hand if you prefer; the menu re-reads it each time you open it.
+
 ## Hack it
 
-Everything lives in `Program.cs`. Knobs at the top: `Engine` ("google"/"spd"), `GoogleLang`, `SpdRate`.
+Speaker logic in `Program.cs` + `Engines.cs`, top-bar icon in `Tray.cs`, shared knobs in
+`Settings.cs` → `~/.config/readaloud/settings.json` (speed, pitch, engine, language, shortcut).
 Rebuild after edits:
 
 ```bash
@@ -28,9 +44,10 @@ git clone https://github.com/IAFahim/ReadAloud
 cd ReadAloud && ./install.sh
 ```
 
-`install.sh` builds, registers the Ctrl+Super+S shortcut, and prints the Claude Code hook
-snippet to paste into `~/.claude/settings.json`. Keep the hook `timeout` high (600) —
-a short timeout kills the voice mid-answer.
+`install.sh` builds, registers the shortcut (the `Shortcut` field in
+`~/.config/readaloud/settings.json`, default Ctrl+Super+S), installs the tray autostart entry,
+starts the tray, and prints the Claude Code hook snippet to paste into `~/.claude/settings.json`.
+Keep the hook `timeout` high (600) — a short timeout kills the voice mid-answer.
 
 ## Where next
 

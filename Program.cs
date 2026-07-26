@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -9,22 +10,47 @@ using System.Text.RegularExpressions;
 //   ReadAloud --stdin        speak text piped in
 //   ReadAloud --claude-hook  Claude Code Stop hook mode: reads the hook JSON on stdin,
 //                            finds the transcript, speaks Claude's last reply
+//   ReadAloud --print-filter [speed [pitch]]   dev check: print the ffplay -af chain
 //   select nothing + run = stop talking
 //   touch ~/.claude/tts-off  = mute the Claude hook (rm the file to unmute)
+//
+// Knobs (speed, pitch, engine, language, MuteClaude) live in ~/.config/readaloud/settings.json —
+// see Settings.cs. The tray writes it, every run reads it fresh.
 
-// ---- knobs to play with ----
-const string Engine = "google"; // "google" = Google Translate voice (needs internet), "spd" = offline robot
-const string GoogleLang = "en"; // "en", "en-GB", "en-AU", ...
-const int SpdRate = 0;          // -100 slow .. 100 fast (spd engine only)
-// ----------------------------
+if (args.Contains("--tray"))
+{
+    Tray.Run();
+    return;
+}
 
+if (args.Contains("--stop"))
+{
+    StopPrevious(isHook: false); // manual stop kills whatever is playing
+    return;
+}
+
+if (args.Contains("--print-filter"))
+{
+    int at = Array.IndexOf(args, "--print-filter");
+    if (at + 1 < args.Length)
+    {
+        double sp = double.Parse(args[at + 1], CultureInfo.InvariantCulture);
+        double pt = at + 2 < args.Length ? double.Parse(args[at + 2], CultureInfo.InvariantCulture) : 1.0;
+        Console.WriteLine(GoogleEngine.Filter(sp, pt));
+        return;
+    }
+
+    Environment.Exit(GoogleEngine.SelfCheck() ? 0 : 1);
+}
+
+var settings = Settings.Load();
 string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 bool isHook = args.Contains("--claude-hook");
 
 string text;
 if (isHook)
 {
-    if (File.Exists(Path.Combine(home, ".claude", "tts-off")))
+    if (settings.MuteClaude || File.Exists(Path.Combine(home, ".claude", "tts-off")))
     {
         return;
     }
@@ -49,9 +75,10 @@ if (string.IsNullOrWhiteSpace(text))
 
 File.WriteAllText(PidFile(), $"{Environment.ProcessId} {(isHook ? "hook" : "manual")}");
 
-if (Engine != "google" || !GoogleSpeak(text))
+ISpeechEngine engine = settings.Engine == "google" ? new GoogleEngine() : new SpdEngine();
+if (!engine.Speak(text, settings) && engine is GoogleEngine)
 {
-    SpdSpeak(text); // offline fallback so TTS never fully dies
+    new SpdEngine().Speak(text, settings); // google went quiet before a sound: offline voice takes it all
 }
 
 static string PidFile() => Path.Combine(Path.GetTempPath(), "readaloud.pid");
@@ -85,95 +112,7 @@ static void StopPrevious(bool isHook)
         // no previous instance, already dead, or pid was reused by something else
     }
 
-    Run("spd-say", "-C"); // also cancel anything queued on the offline engine
-}
-
-static bool GoogleSpeak(string text)
-{
-    var chunks = Chunks(text).ToList();
-    using var http = new HttpClient();
-    http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
-    http.Timeout = TimeSpan.FromSeconds(10);
-
-    Task<byte[]>? next = Fetch(http, chunks[0]);
-    for (int i = 0; i < chunks.Count; i++)
-    {
-        byte[] mp3;
-        try
-        {
-            mp3 = next!.GetAwaiter().GetResult();
-        }
-        catch (Exception)
-        {
-            // offline or rate-limited mid-read: NEVER drop the rest — the offline voice finishes it
-            if (i == 0)
-            {
-                return false;
-            }
-            SpdSpeak(string.Join(" ", chunks.Skip(i)));
-            return true;
-        }
-
-        next = i + 1 < chunks.Count ? Fetch(http, chunks[i + 1]) : null; // prefetch while this one plays
-
-        string f = Path.Combine(Path.GetTempPath(), $"readaloud-{i}.mp3");
-        File.WriteAllBytes(f, mp3);
-        Run("ffplay", $"-nodisp -autoexit -loglevel quiet \"{f}\"");
-    }
-
-    return true;
-}
-
-static Task<byte[]> Fetch(HttpClient http, string chunk) =>
-    http.GetByteArrayAsync("https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob"
-                           + $"&tl={GoogleLang}&q={Uri.EscapeDataString(chunk)}");
-
-static void SpdSpeak(string text)
-{
-    var psi = new ProcessStartInfo("spd-say") { RedirectStandardInput = true };
-    psi.ArgumentList.Add("-e"); // pipe mode: text on stdin, no argv limits
-    psi.ArgumentList.Add("-r");
-    psi.ArgumentList.Add(SpdRate.ToString());
-    try
-    {
-        using var p = Process.Start(psi)!;
-        p.StandardInput.Write(text);
-        p.StandardInput.Close();
-        p.WaitForExit();
-    }
-    catch (Exception)
-    {
-        // speech-dispatcher missing entirely: nothing sensible left to do
-    }
-}
-
-// split on sentence ends, keep each request under the Translate endpoint's limit
-static IEnumerable<string> Chunks(string s, int max = 180)
-{
-    string cur = "";
-    foreach (string part in Regex.Split(s, @"(?<=[.!?;:])\s+"))
-    {
-        string p = part;
-        while (p.Length > max)
-        {
-            if (cur.Length > 0) { yield return cur; cur = ""; }
-            yield return p[..max];
-            p = p[max..];
-        }
-        if (cur.Length + p.Length + 1 > max)
-        {
-            if (cur.Length > 0) yield return cur;
-            cur = p;
-        }
-        else
-        {
-            cur = cur.Length == 0 ? p : cur + " " + p;
-        }
-    }
-    if (cur.Length > 0)
-    {
-        yield return cur;
-    }
+    Sh.Run("spd-say", "-C"); // also cancel anything queued on the offline engine
 }
 
 // Claude Code hook JSON -> transcript path -> last assistant message text
@@ -268,17 +207,4 @@ static string Clean(string s)
     s = Regex.Replace(s, @"https?://\S+", " link ");
     s = Regex.Replace(s, @"[#*_>|~]", " ");
     return Regex.Replace(s, @"\s+", " ").Trim();
-}
-
-static void Run(string cmd, string cmdArgs)
-{
-    try
-    {
-        using var p = Process.Start(new ProcessStartInfo(cmd, cmdArgs));
-        p?.WaitForExit();
-    }
-    catch (Exception)
-    {
-        // tool missing, ignore
-    }
 }

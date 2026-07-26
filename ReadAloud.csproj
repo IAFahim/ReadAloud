@@ -5,5 +5,12 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- keep build junk out of the compile glob even when obj/bin are redirected elsewhere -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**;bin-tray/**;obj-tray/**;publish/**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- tray only: the GNOME top-bar icon is a StatusNotifierItem published on the session bus -->
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
+  </ItemGroup>
 </Project>

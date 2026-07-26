@@ -5,6 +5,14 @@ cd "$(dirname "$0")"
 
 dotnet publish -c Release -o publish
 
+# the shortcut lives in settings.json so the tray/settings file stays the single source of truth
+SETTINGS="$HOME/.config/readaloud/settings.json"
+BINDING='<Control><Super>s'
+if [[ -f "$SETTINGS" ]]; then
+  BINDING=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("Shortcut") or "")' "$SETTINGS" 2>/dev/null || true)
+  [[ -n "$BINDING" ]] || BINDING='<Control><Super>s'
+fi
+
 BASE=org.gnome.settings-daemon.plugins.media-keys
 KB=/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/readaloud/
 cur=$(gsettings get $BASE custom-keybindings)
@@ -14,9 +22,28 @@ if [[ "$cur" != *readaloud* ]]; then
 fi
 gsettings set $BASE.custom-keybinding:$KB name 'Read Aloud selection'
 gsettings set $BASE.custom-keybinding:$KB command "$PWD/publish/ReadAloud"
-gsettings set $BASE.custom-keybinding:$KB binding '<Control><Super>s'
+gsettings set $BASE.custom-keybinding:$KB binding "$BINDING"
 
-echo "Done. Ctrl+Super+S reads the current selection."
+# top-bar icon at every login
+mkdir -p "$HOME/.config/autostart"
+cat > "$HOME/.config/autostart/readaloud-tray.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=ReadAloud tray
+Comment=Top-bar controls for ReadAloud
+Exec=$PWD/publish/ReadAloud --tray
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+EOF
+
+if pgrep -f "ReadAloud --tray" >/dev/null; then
+  echo "Tray already running — pick Quit in its menu and rerun to load the new build."
+else
+  setsid "$PWD/publish/ReadAloud" --tray >/dev/null 2>&1 < /dev/null &
+  echo "Tray started."
+fi
+
+echo "Done. $BINDING reads the current selection; the top-bar icon has the rest."
 echo
 echo "For Claude Code auto-speak, add this entry to the Stop hooks in ~/.claude/settings.json:"
 echo "  { \"hooks\": [ { \"type\": \"command\", \"command\": \"$PWD/publish/ReadAloud --claude-hook\", \"timeout\": 600, \"async\": true } ] }"
