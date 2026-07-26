@@ -11,6 +11,9 @@ public sealed class Settings
     public int SpdRate { get; set; } = 0;     // -100..100, spd engine only
     public bool MuteClaude { get; set; }      // silence the Claude Code auto-read hook
     public bool WiggleEnabled { get; set; } = true; // shake the mouse over a selection to read it
+    public bool WigglePop { get; set; } = true;     // little pop sound when a wiggle is caught
+    public int WiggleFlips { get; set; } = 4;       // shakes needed to trigger; lower = more sensitive
+    public int WiggleWindowMs { get; set; } = 600;  // how fast the shakes must land
     public string Shortcut { get; set; } = "<Control><Super>s";
 
     public static string Dir =>

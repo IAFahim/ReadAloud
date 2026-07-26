@@ -39,7 +39,14 @@ dotnet publish -c Release -o publish
 
 The GNOME shortcut runs `publish/ReadAloud`; change the key in Settings → Keyboard → Custom Shortcuts.
 
-## New PC setup
+## New PC setup — one line
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/IAFahim/ReadAloud/master/setup.sh)
+```
+
+Installs everything: packages, .NET 10, the app, the shortcut, the top-bar icon,
+autostart, mouse permission for wiggle, and the Claude Code hook. Or manually:
 
 ```bash
 git clone https://github.com/IAFahim/ReadAloud

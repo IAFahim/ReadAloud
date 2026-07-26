@@ -39,7 +39,13 @@ EOF
 if pgrep -f "ReadAloud --tray" >/dev/null; then
   echo "Tray already running — pick Quit in its menu and rerun to load the new build."
 else
-  setsid "$PWD/publish/ReadAloud" --tray >/dev/null 2>&1 < /dev/null &
+  # if the input group was granted but this login session predates it, sg gives the
+  # tray mouse access (wiggle) right now instead of waiting for the next login
+  if grep "^input:" /etc/group | grep -qw "$USER" && ! id -nG | tr ' ' '\n' | grep -qx input; then
+    sg input -c "setsid '$PWD/publish/ReadAloud' --tray >/dev/null 2>&1 < /dev/null &"
+  else
+    setsid "$PWD/publish/ReadAloud" --tray >/dev/null 2>&1 < /dev/null &
+  fi
   echo "Tray started."
 fi
 

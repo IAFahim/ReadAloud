@@ -38,7 +38,9 @@ static class Tray
             new(4, 0, "Engine"),
             new(41, 4, "Google voice", "radio", () => cfg.Engine == "google", () => Edit(s => s.Engine = "google")),
             new(42, 4, "Offline voice", "radio", () => cfg.Engine == "spd", () => Edit(s => s.Engine = "spd")),
-            new(5, 0, "Wiggle to read", "checkmark", () => cfg.WiggleEnabled, () => Edit(s => s.WiggleEnabled = !s.WiggleEnabled)),
+            new(5, 0, "Wiggle"),
+            new(51, 5, "Wiggle to read", "checkmark", () => cfg.WiggleEnabled, () => Edit(s => s.WiggleEnabled = !s.WiggleEnabled)),
+            new(52, 5, "Pop sound", "checkmark", () => cfg.WigglePop, () => Edit(s => s.WigglePop = !s.WigglePop)),
             new(6, 0, "Open settings file", Click: () => Start("xdg-open", Settings.FilePath)),
             new(7, 0, "Quit", Click: Quit),
         };

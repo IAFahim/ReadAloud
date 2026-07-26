@@ -12,10 +12,26 @@ using System.Text.RegularExpressions;
 // often that fast. Cooldown stops one shake from firing twice.
 static class Wiggle
 {
-    const int MinSegmentPx = 15;
-    const int FlipsToTrigger = 4;
-    const int WindowMs = 600;
-    const int CooldownMs = 1500;
+    static Settings cached = Settings.Load();
+    static DateTime stamp;
+
+    // settings re-read only when the file's mtime moves — stat on direction flips, never per event
+    static Settings Current()
+    {
+        try
+        {
+            DateTime t = File.GetLastWriteTimeUtc(Settings.FilePath);
+            if (t != stamp)
+            {
+                stamp = t;
+                cached = Settings.Load();
+            }
+        }
+        catch (Exception)
+        {
+        }
+        return cached;
+    }
 
     public static void Start()
     {
@@ -69,9 +85,14 @@ static class Wiggle
                 ushort type = BitConverter.ToUInt16(buf, 16);
                 ushort code = BitConverter.ToUInt16(buf, 18);
                 int value = BitConverter.ToInt32(buf, 20);
-                if (type == 2 && code == 0 && detector.Feed(value, Environment.TickCount64)) // EV_REL REL_X
+                if (type != 2 || code != 0) // EV_REL REL_X only
                 {
-                    Trigger();
+                    continue;
+                }
+                Settings s = Current();
+                if (detector.Feed(value, Environment.TickCount64, s.WiggleFlips, s.WiggleWindowMs))
+                {
+                    Trigger(s);
                 }
             }
         }
@@ -101,21 +122,24 @@ static class Wiggle
         return true;
     }
 
-    static void Trigger()
+    static void Trigger(Settings s)
     {
-        if (!Settings.Load().WiggleEnabled)
+        if (!s.WiggleEnabled)
         {
             return;
         }
 
-        try // a tiny pop so the shake feels acknowledged before the voice warms up
+        if (s.WigglePop)
         {
-            Process.Start(new ProcessStartInfo("ffplay",
-                "-f lavfi -i sine=frequency=880:duration=0.07 -autoexit -nodisp -loglevel quiet"));
-        }
-        catch (Exception)
-        {
-            // no ffplay, no pop — the speech itself is the feedback
+            try // a tiny pop so the shake feels acknowledged before the voice warms up
+            {
+                Process.Start(new ProcessStartInfo("ffplay",
+                    "-f lavfi -i sine=frequency=880:duration=0.07 -autoexit -nodisp -loglevel quiet"));
+            }
+            catch (Exception)
+            {
+                // no ffplay, no pop — the speech itself is the feedback
+            }
         }
 
         try
@@ -133,8 +157,6 @@ static class Wiggle
 sealed class WiggleDetector
 {
     const int MinSegmentPx = 15;
-    const int FlipsToTrigger = 4;
-    const int WindowMs = 600;
     const int CooldownMs = 1500;
 
     int dir;
@@ -143,7 +165,7 @@ sealed class WiggleDetector
     readonly Queue<long> flips = new();
 
     // feed one horizontal delta; true = that delta completed a wiggle
-    public bool Feed(int dx, long nowMs)
+    public bool Feed(int dx, long nowMs, int flipsToTrigger = 4, int windowMs = 600)
     {
         int s = Math.Sign(dx);
         if (s == 0)
@@ -160,11 +182,11 @@ sealed class WiggleDetector
         if (dir != 0 && travel >= MinSegmentPx)
         {
             flips.Enqueue(nowMs);
-            while (flips.Count > 0 && nowMs - flips.Peek() > WindowMs)
+            while (flips.Count > 0 && nowMs - flips.Peek() > windowMs)
             {
                 flips.Dequeue();
             }
-            if (flips.Count >= FlipsToTrigger && nowMs - lastTrigger > CooldownMs)
+            if (flips.Count >= flipsToTrigger && nowMs - lastTrigger > CooldownMs)
             {
                 lastTrigger = nowMs;
                 flips.Clear();
