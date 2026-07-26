@@ -42,25 +42,5 @@ if ! id -nG | tr ' ' '\n' | grep -qx input; then
   echo "Mouse access granted — it fully applies after your next login."
 fi
 
-# --- Claude Code auto-speak hook (idempotent) ---
-if [[ -d "$HOME/.claude" ]]; then
-  DIR="$DIR" python3 - <<'EOF'
-import json, os
-p = os.path.expanduser('~/.claude/settings.json')
-cmd = os.path.join(os.environ['DIR'], 'publish', 'ReadAloud') + ' --claude-hook'
-try:
-    s = json.load(open(p))
-except Exception:
-    s = {}
-stops = s.setdefault('hooks', {}).setdefault('Stop', [])
-if any(cmd == h.get('command') for e in stops for h in e.get('hooks', [])):
-    print('Claude Code hook already installed.')
-else:
-    stops.append({'hooks': [{'type': 'command', 'command': cmd, 'timeout': 600, 'async': True}]})
-    json.dump(s, open(p, 'w'), indent=2)
-    print('Claude Code auto-speak hook installed.')
-EOF
-fi
-
 echo
 echo "Boom. Select text and press Ctrl+Super+S — or wiggle the mouse. The top-bar icon has the controls."

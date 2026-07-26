@@ -16,11 +16,11 @@ The ports compile clean and pass their logic self-checks, but were written on Li
 
 - Press again with a new selection: interrupts and reads the new one.
 - Press with nothing selected: stops talking.
-- Claude Code replies are auto-spoken: a Stop hook in `~/.claude/settings.json` runs
-  `publish/ReadAloud --claude-hook`, which parses the transcript itself — pure C#, no shell script.
-  Mute with `touch ~/.claude/tts-off`, unmute with `rm ~/.claude/tts-off`.
 - Voice is the free Google Translate voice (needs internet); falls back to the offline
   spd-say robot automatically when offline.
+- Want Claude Code replies auto-spoken? Deliberately NOT installed by default — with several
+  agent sessions open the voices trample each other. Select + wiggle instead. To opt in
+  anyway, add a Stop hook running `publish/ReadAloud --claude-hook` (timeout 600, async).
 
 ## Top-bar controls
 

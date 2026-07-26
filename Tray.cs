@@ -33,7 +33,6 @@ static class Tray
         var menu = new List<Node>
         {
             new(1, 0, "Stop speaking", Click: () => Start(Environment.ProcessPath!, "--stop")),
-            new(2, 0, "Mute Claude replies", "checkmark", () => cfg.MuteClaude, () => Edit(s => s.MuteClaude = !s.MuteClaude)),
             new(3, 0, "Speed"),
             new(4, 0, "Engine"),
             new(41, 4, "Google voice", "radio", () => cfg.Engine == "google", () => Edit(s => s.Engine = "google")),

@@ -51,6 +51,7 @@ if (args.Contains("--print-filter"))
 var settings = Settings.Load();
 string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 bool isHook = args.Contains("--claude-hook");
+bool isWiggle = args.Contains("--wiggle"); // coarse gesture: may stop, may read, never surprises
 
 string text;
 if (isHook)
@@ -70,6 +71,12 @@ else
     text = GetSelection();
 }
 
+if (isWiggle && IsSpeaking())
+{
+    StopPrevious(isHook: false); // shake while it's talking = shut up; never restart the same text
+    return;
+}
+
 StopPrevious(isHook); // manual use interrupts anything; hook mode waits its turn behind a manual read
 
 text = Clean(text);
@@ -78,6 +85,13 @@ if (string.IsNullOrWhiteSpace(text))
     return; // nothing to say: we just silenced the old speech, done
 }
 
+if (isWiggle && SameAsLastRead(text))
+{
+    return; // stale selection from earlier: an idle shake shouldn't re-read old text
+            // (the keyboard shortcut still re-reads deliberately)
+}
+
+RememberLastRead(text);
 File.WriteAllText(PidFile(), $"{Environment.ProcessId} {(isHook ? "hook" : "manual")}");
 
 ISpeechEngine engine = settings.Engine == "google" ? new GoogleEngine() : new SpdEngine();
@@ -87,6 +101,48 @@ if (!engine.Speak(text, settings) && engine is GoogleEngine)
 }
 
 static string PidFile() => Path.Combine(Path.GetTempPath(), "readaloud.pid");
+
+static bool IsSpeaking()
+{
+    try
+    {
+        string[] parts = File.ReadAllText(PidFile()).Trim().Split(' ');
+        return Process.GetProcessById(int.Parse(parts[0])).ProcessName.Contains("ReadAloud");
+    }
+    catch (Exception)
+    {
+        return false; // no pidfile, dead pid, or pid reused by something else
+    }
+}
+
+static string LastReadFile() => Path.Combine(Path.GetTempPath(), "readaloud.last");
+
+static bool SameAsLastRead(string text)
+{
+    try
+    {
+        return File.ReadAllText(LastReadFile()) == Hash(text);
+    }
+    catch (Exception)
+    {
+        return false;
+    }
+}
+
+static void RememberLastRead(string text)
+{
+    try
+    {
+        File.WriteAllText(LastReadFile(), Hash(text));
+    }
+    catch (Exception)
+    {
+    }
+}
+
+// stable across processes (string.GetHashCode is randomized per run)
+static string Hash(string s) =>
+    Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(s)));
 
 static void StopPrevious(bool isHook)
 {

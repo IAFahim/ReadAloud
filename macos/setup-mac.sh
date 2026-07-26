@@ -4,12 +4,12 @@
 #   bash <(curl -fsSL https://raw.githubusercontent.com/IAFahim/ReadAloud/master/macos/setup-mac.sh)
 #
 # It installs the .NET 10 SDK if missing, clones or updates ~/ReadAloud, publishes the macOS
-# binary, wires the Claude Code auto-speak hook, and then TELLS you the two manual steps macOS
+# binary, and then TELLS you the two manual steps macOS
 # will not let a script do for you (Accessibility permission, keyboard shortcut).
 #
 # HONESTY: this script was written and syntax-checked on Linux and has NEVER BEEN RUN ON A MAC.
 # Read it before you trust it. It only ever writes to: ~/.dotnet, ~/ReadAloud, ~/.zshrc (one PATH
-# block), and ~/.claude/settings.json (backed up to settings.json.readaloud-bak first).
+# block).
 
 set -euo pipefail
 
@@ -79,51 +79,8 @@ dotnet publish "$REPO_DIR/macos/ReadAloud.Mac.csproj" -c Release -o "$REPO_DIR/m
 step "Self-check (pure logic: speed mapping, markdown clean, transcript parse)"
 "$BIN" --self-check
 
-# ------------------------------------------------------- Claude Code auto-speak
-if [ -d "$HOME/.claude" ]; then
-  step "Wiring the Claude Code Stop hook"
-  python3 - "$BIN" <<'PY'
-import json, os, shutil, sys
-
-binary = sys.argv[1]
-path = os.path.expanduser("~/.claude/settings.json")
-
-try:
-    with open(path) as f:
-        cfg = json.load(f)
-except (OSError, ValueError):
-    cfg = {}
-
-if os.path.exists(path):
-    shutil.copyfile(path, path + ".readaloud-bak")
-
-# timeout 600: a short timeout kills the voice mid-answer. async: never make Claude wait on speech.
-entry = {"type": "command", "command": binary + " --claude-hook", "timeout": 600, "async": True}
-
-hooks = cfg.setdefault("hooks", {})
-groups = hooks.get("Stop", [])
-
-# Drop every previous ReadAloud entry before adding ours back. That makes reruns idempotent AND
-# self-healing: if the binary moved, the stale command is replaced instead of doubling up.
-kept = []
-for g in groups:
-    g["hooks"] = [h for h in g.get("hooks", []) if "--claude-hook" not in str(h.get("command", ""))]
-    if g["hooks"]:
-        kept.append(g)
-kept.append({"hooks": [entry]})
-hooks["Stop"] = kept
-
-with open(path, "w") as f:
-    json.dump(cfg, f, indent=2)
-    f.write("\n")
-
-print("Stop hook -> " + entry["command"])
-print("Backup of the old settings: " + path + ".readaloud-bak")
-PY
-else
-  step "No ~/.claude directory — skipping the Claude Code hook"
-  echo "Install Claude Code, then rerun this script to wire the auto-speak hook."
-fi
+# (No Claude Code hook: auto-speaking every agent reply gets chaotic with several sessions
+# open. Read on demand instead. The binary still supports --claude-hook for hand-wiring.)
 
 # ------------------------------------------------------------- what YOU must do
 cat <<EOF
@@ -174,7 +131,6 @@ Handy:
    $BIN --stop          stop talking now
    $BIN --stdin         echo "hello" | that
    $BIN --self-check    the pure-logic tests
-   touch ~/.claude/tts-off   mute Claude auto-speak   (rm to unmute)
    Speed and mute live in ~/.config/readaloud/settings.json (Speed 2.5 = 500 words/minute).
    Voice: System Settings > Accessibility > Spoken Content.  \`say -v ?\` lists them all.
 

@@ -144,7 +144,9 @@ static class Wiggle
 
         try
         {
-            Process.Start(Environment.ProcessPath!); // selection mode: reads whatever is selected
+            var psi = new ProcessStartInfo(Environment.ProcessPath!);
+            psi.ArgumentList.Add("--wiggle"); // wiggle etiquette: stop if talking, skip stale text
+            Process.Start(psi);
         }
         catch (Exception e)
         {

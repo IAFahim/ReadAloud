@@ -4,7 +4,7 @@
 #
 # Installs the .NET 10 SDK (winget) if missing, clones/updates the repo into $HOME\ReadAloud,
 # publishes windows\ReadAloud.Windows.csproj to a single exe, drops a Start Menu + Startup
-# shortcut, and adds the Claude Code Stop hook. Every step says what it did. Safe to re-run.
+# shortcut. Every step says what it did. Safe to re-run.
 #
 # *** HONESTY: this script was written on Linux and has NEVER been executed on Windows. ***
 # It is deliberately Windows PowerShell 5.1 compatible (no ternaries, no -AsHashtable), because
@@ -109,60 +109,11 @@ Set-Shortcut $startMenu $Exe
 Set-Shortcut $startup $Exe
 Write-Host '[ok]   Start Menu shortcut + Startup shortcut (runs at every login).'
 
-# ---- 5. Claude Code Stop hook ------------------------------------------------------
-$claudeDir = Join-Path $HOME '.claude'
-if (-not (Test-Path $claudeDir)) {
-    Write-Host '[--]   No ~\.claude directory - skipping the Claude Code hook.'
-}
-else {
-    $settings = Join-Path $claudeDir 'settings.json'
-    $cfg = [pscustomobject]@{}
-    if (Test-Path $settings) {
-        Copy-Item $settings "$settings.readaloud.bak" -Force  # this script rewrites the file; keep a way back
-        $raw = Get-Content -Raw -Path $settings
-        if ($raw -and $raw.Trim().Length -gt 0) {
-            $cfg = $raw | ConvertFrom-Json
-        }
-    }
+# (No Claude Code hook: auto-speaking every agent reply gets chaotic with several
+# sessions open. Wiggle or Ctrl+Win+S read on demand — that's the designed flow.
+# The exe still supports --claude-hook if someone wants to wire it by hand.)
 
-    if (-not $cfg.PSObject.Properties['hooks']) {
-        $cfg | Add-Member -MemberType NoteProperty -Name 'hooks' -Value ([pscustomobject]@{})
-    }
-    if (-not $cfg.hooks.PSObject.Properties['Stop']) {
-        $cfg.hooks | Add-Member -MemberType NoteProperty -Name 'Stop' -Value @()
-    }
-
-    # Idempotent: drop any group that already points at a ReadAloud exe, then add ours back.
-    # timeout 600 because a short timeout cuts the voice off mid-answer; async so Claude Code
-    # does not sit and wait for the speech to finish.
-    $command = '"' + $Exe + '" --claude-hook'
-    $entry = [pscustomobject]@{
-        hooks = @([pscustomobject]@{
-                type    = 'command'
-                command = $command
-                timeout = 600
-                async   = $true
-            })
-    }
-
-    $kept = @()
-    foreach ($group in @($cfg.hooks.Stop)) {
-        $commands = @($group.hooks | ForEach-Object { $_.command })
-        if (-not ($commands -match 'ReadAloud')) {
-            $kept += $group
-        }
-    }
-    $kept += $entry
-    $cfg.hooks.Stop = $kept
-
-    # NOT Set-Content -Encoding UTF8: on Windows PowerShell 5.1 that writes a byte order mark, and
-    # Claude Code parses this file with JSON.parse, which rejects one. WriteAllText has no BOM.
-    [System.IO.File]::WriteAllText($settings, ($cfg | ConvertTo-Json -Depth 20))
-    Write-Host "[ok]   Claude Stop hook -> $command"
-    Write-Host "       (backup of the old file: $settings.readaloud.bak)"
-}
-
-# ---- 6. run it ---------------------------------------------------------------------
+# ---- 5. run it ---------------------------------------------------------------------
 if (Get-Process -Name 'ReadAloud' -ErrorAction SilentlyContinue) {
     Write-Host '[--]   ReadAloud is already running - quit it from the tray icon to load the new build.'
 }
@@ -174,5 +125,4 @@ else {
 Write-Host ''
 Write-Host 'Done. Select text anywhere and press Ctrl+Win+S, or shake the mouse left-right.' -ForegroundColor Green
 Write-Host "Settings file: $HOME\.config\readaloud\settings.json (the tray menu writes it)"
-Write-Host 'Mute Claude replies: tray menu, or  New-Item ~\.claude\tts-off'
 Write-Host ''
