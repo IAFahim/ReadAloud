@@ -13,4 +13,9 @@
     <!-- tray only: the GNOME top-bar icon is a StatusNotifierItem published on the session bus -->
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.94.2" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- warm Inflect ONNX worker, copied next to the binary so EnsureReady can install it -->
+    <None Update="inflect_worker.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

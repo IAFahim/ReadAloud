@@ -24,7 +24,10 @@ static class Tray
 
     // One flat menu table. Id 0 is the invisible root; parents are implied by Parent.
     // On = is it ticked right now (read fresh from cfg), Click = what pressing it does.
-    sealed record Node(int Id, int Parent, string Label, string Toggle = "", Func<bool>? On = null, Action? Click = null);
+    // LiveLabel refreshes every AboutToShow so long Inflect loads / multi-chunk synth show up.
+    sealed record Node(
+        int Id, int Parent, string Label, string Toggle = "",
+        Func<bool>? On = null, Action? Click = null, Func<string>? LiveLabel = null);
 
     static readonly Node[] Nodes = BuildMenu();
 
@@ -33,15 +36,97 @@ static class Tray
         var menu = new List<Node>
         {
             new(1, 0, "Stop speaking", Click: () => Start(Environment.ProcessPath!, "--stop")),
+            // live status: never clickable, just answers "is it frozen or actually working?"
+            new(2, 0, "Status", LiveLabel: () =>
+            {
+                string live = SpeakStatus.CurrentDetail();
+                if (live.Length > 0)
+                {
+                    return "● " + live;
+                }
+
+                return cfg.Engine switch
+                {
+                    "inflect" => "○ " + InflectEngine.StatusLine(),
+                    "spd" => "○ Offline voice",
+                    _ => "○ Google voice (online)",
+                };
+            }),
             new(3, 0, "Speed"),
+            new(8, 0, "Pitch"),
             new(4, 0, "Engine"),
             new(41, 4, "Google voice", "radio", () => cfg.Engine == "google", () => Edit(s => s.Engine = "google")),
-            new(42, 4, "Offline voice", "radio", () => cfg.Engine == "spd", () => Edit(s => s.Engine = "spd")),
+            new(42, 4, "Inflect voice", "radio", () => cfg.Engine == "inflect", () => Edit(s =>
+            {
+                s.Engine = "inflect";
+                // first pick: pull model + warm the worker in the background
+                _ = Task.Run(() =>
+                {
+                    SpeakStatus.Set("load", "Inflect · preparing…", 30_000);
+                    if (InflectEngine.EnsureReady())
+                    {
+                        InflectEngine.EnsureWorker();
+                    }
+                });
+            })),
+            new(43, 4, "Offline voice", "radio", () => cfg.Engine == "spd", () => Edit(s => s.Engine = "spd")),
+            new(9, 0, "Inflect"),
+            new(91, 9, "Install / update", Click: () => _ = Task.Run(() =>
+            {
+                SpeakStatus.Set("load", "Inflect · install / update…", 60_000);
+                bool ok = InflectEngine.EnsureReady() && InflectEngine.EnsureWorker();
+                if (ok)
+                {
+                    SpeakStatus.Set("ready", "Inflect ready (warm)", 4_000);
+                }
+                else
+                {
+                    SpeakStatus.Alert("Inflect install failed — see notification");
+                }
+            })),
+            new(92, 9, "Warm up now", Click: () => _ = Task.Run(() =>
+            {
+                SpeakStatus.Set("load", "Inflect · warming worker…", 60_000);
+                if (InflectEngine.EnsureReady() && InflectEngine.EnsureWorker())
+                {
+                    SpeakStatus.Set("ready", "Inflect ready (warm)", 3_000);
+                }
+                else
+                {
+                    SpeakStatus.Alert("Inflect warm-up failed");
+                }
+            })),
+            new(93, 9, "Stop worker", Click: () =>
+            {
+                InflectEngine.StopWorker();
+                SpeakStatus.Set("ready", "Inflect worker stopped", 3_000);
+            }),
+            // variation: lower = steadier delivery
+            new(94, 9, "Steady", "radio", () => Math.Abs(cfg.InflectVariation - 0.2) < 0.05,
+                () => Edit(s => s.InflectVariation = 0.2)),
+            new(95, 9, "Natural", "radio", () => Math.Abs(cfg.InflectVariation - 0.667) < 0.05,
+                () => Edit(s => s.InflectVariation = 0.667)),
+            new(96, 9, "Expressive", "radio", () => Math.Abs(cfg.InflectVariation - 1.0) < 0.05,
+                () => Edit(s => s.InflectVariation = 1.0)),
             new(5, 0, "Wiggle"),
             new(51, 5, "Wiggle to read", "checkmark", () => cfg.WiggleEnabled, () => Edit(s => s.WiggleEnabled = !s.WiggleEnabled)),
             new(52, 5, "Pop sound", "checkmark", () => cfg.WigglePop, () => Edit(s => s.WigglePop = !s.WigglePop)),
+            // sensitivity: Sensitive → Stubborn. Picks a coherent flips/window/stroke/cooldown bundle.
+            new(53, 5, "Sensitive", "radio", () => cfg.WiggleFeel == "sensitive",
+                () => Edit(s => Settings.ApplyWiggleFeel(s, "sensitive"))),
+            new(54, 5, "Normal", "radio",
+                () => cfg.WiggleFeel is not "sensitive" and not "firm" and not "stubborn",
+                () => Edit(s => Settings.ApplyWiggleFeel(s, "normal"))),
+            new(55, 5, "Firm", "radio", () => cfg.WiggleFeel == "firm",
+                () => Edit(s => Settings.ApplyWiggleFeel(s, "firm"))),
+            new(56, 5, "Stubborn", "radio", () => cfg.WiggleFeel == "stubborn",
+                () => Edit(s => Settings.ApplyWiggleFeel(s, "stubborn"))),
             new(6, 0, "Open settings file", Click: () => Start("xdg-open", Settings.FilePath)),
-            new(7, 0, "Quit", Click: Quit),
+            new(7, 0, "Quit", Click: () =>
+            {
+                InflectEngine.StopWorker(); // free the ~model RAM when the tray goes away
+                Quit();
+            }),
         };
 
         int id = 31;
@@ -49,6 +134,18 @@ static class Tray
         {
             double v = preset;
             menu.Add(new(id++, 3, $"{v:0.0}x", "radio", () => Math.Abs(cfg.Speed - v) < 0.01, () => Edit(s => s.Speed = v)));
+        }
+
+        // pitch: 0.8 / 1.0 / 1.2 covers "lower / natural / higher" without a slider
+        foreach (var (pid, pitch, label) in new (int, double, string)[]
+                 {
+                     (81, 0.8, "Lower"),
+                     (82, 1.0, "Natural"),
+                     (83, 1.2, "Higher"),
+                 })
+        {
+            double p = pitch;
+            menu.Add(new(pid, 8, label, "radio", () => Math.Abs(cfg.Pitch - p) < 0.01, () => Edit(s => s.Pitch = p)));
         }
 
         return menu.OrderBy(n => n.Id).ToArray(); // ids are the display order inside each parent
@@ -382,11 +479,16 @@ static class Tray
         ArrayStart d = w.WriteDictionaryStart();
         if (n != null)
         {
-            Entry(ref w, "label", n.Label);
+            Entry(ref w, "label", n.LiveLabel?.Invoke() ?? n.Label);
             if (n.Toggle.Length > 0)
             {
                 Entry(ref w, "toggle-type", n.Toggle);
                 Entry(ref w, "toggle-state", n.On!() ? 1 : 0);
+            }
+            // status row is display-only — grey it out so it doesn't look clickable
+            if (n.LiveLabel != null && n.Click == null)
+            {
+                Entry(ref w, "enabled", false);
             }
         }
         if (Nodes.Any(x => x.Parent == id))
@@ -417,6 +519,13 @@ static class Tray
         w.WriteVariantUInt32(value);
     }
 
+    static void Entry(ref MessageWriter w, string key, bool value)
+    {
+        w.WriteDictionaryEntryStart();
+        w.WriteString(key);
+        w.WriteVariantBool(value);
+    }
+
     // ---- actions ----
 
     static void Click(int id) => Nodes.FirstOrDefault(n => n.Id == id)?.Click?.Invoke();
@@ -433,18 +542,30 @@ static class Tray
     // Reload from disk; only announce a layout change when the tick-relevant state truly moved.
     // Announcing on every AboutToShow makes gnome-shell rebuild the menu mid-hover, which kills
     // submenus before they can open — that was the "Speed/Engine won't expand" bug.
+    //
+    // Always return true when a speak is in flight so the Status row re-renders with the
+    // latest "synthesizing 3/12" line — but only for the root (id 0) path; AboutToShow on a
+    // submenu still uses the same flag, which is fine: one rebuild while busy is worth it.
     static bool RefreshFromDisk()
     {
         Settings fresh = Settings.Load();
-        bool changed = fresh.MuteClaude != cfg.MuteClaude
-                       || fresh.Engine != cfg.Engine
-                       || Math.Abs(fresh.Speed - cfg.Speed) > 0.001;
+        bool settingsChanged = fresh.MuteClaude != cfg.MuteClaude
+                               || fresh.Engine != cfg.Engine
+                               || Math.Abs(fresh.Speed - cfg.Speed) > 0.001
+                               || Math.Abs(fresh.Pitch - cfg.Pitch) > 0.001
+                               || Math.Abs(fresh.InflectVariation - cfg.InflectVariation) > 0.001
+                               || fresh.WiggleEnabled != cfg.WiggleEnabled
+                               || fresh.WiggleFeel != cfg.WiggleFeel
+                               || fresh.WiggleFlips != cfg.WiggleFlips;
         cfg = fresh;
-        if (changed)
+        // live speak status: ask the shell to re-GetLayout (so "synthesizing 3/12" updates)
+        // WITHOUT LayoutUpdated — that signal mid-hover collapses open submenus.
+        bool busy = SpeakStatus.CurrentDetail().Length > 0;
+        if (settingsChanged)
         {
             SignalLayoutUpdated();
         }
-        return changed;
+        return settingsChanged || busy;
     }
 
     static void SignalLayoutUpdated()

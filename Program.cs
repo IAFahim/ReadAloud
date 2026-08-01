@@ -11,6 +11,8 @@ using System.Text.RegularExpressions;
 //   ReadAloud --claude-hook  Claude Code Stop hook mode: reads the hook JSON on stdin,
 //                            finds the transcript, speaks Claude's last reply
 //   ReadAloud --print-filter [speed [pitch]]   dev check: print the ffplay -af chain
+//   ReadAloud --install-inflect                download Inflect model + python env
+//   ReadAloud --engine-check                   which voices are ready right now
 //   select nothing + run = stop talking
 //   touch ~/.claude/tts-off  = mute the Claude hook (rm the file to unmute)
 //
@@ -26,12 +28,39 @@ if (args.Contains("--tray"))
 if (args.Contains("--stop"))
 {
     StopPrevious(isHook: false); // manual stop kills whatever is playing
+    ForgetLastRead();
+    SpeakStatus.Clear();
     return;
 }
 
 if (args.Contains("--wiggle-test"))
 {
     Environment.Exit(WiggleDetector.SelfCheck() ? 0 : 1);
+}
+
+if (args.Contains("--install-inflect"))
+{
+    Console.WriteLine("Installing Inflect voice…");
+    bool ok = InflectEngine.EnsureReady();
+    Console.WriteLine(ok ? "Inflect ready at " + InflectEngine.ModelDir : "Inflect install failed (see messages above).");
+    Environment.Exit(ok ? 0 : 1);
+}
+
+if (args.Contains("--engine-check"))
+{
+    Console.WriteLine("google:  online (needs internet at speak time)");
+    Console.WriteLine("inflect: " + InflectEngine.StatusLine()
+                      + "  (" + InflectEngine.ModelDir + ")");
+    Console.WriteLine("spd:     " + (HasCmd("spd-say") ? "ready" : "missing"));
+    Console.WriteLine("ffplay:  " + (HasCmd("ffplay") ? "ready" : "missing"));
+    Console.WriteLine("uv:      " + (HasCmd("uv") ? "ready" : "missing"));
+    Console.WriteLine("hf:      " + (HasCmd("hf") || HasCmd("huggingface-cli") ? "ready" : "missing"));
+    string live = SpeakStatus.CurrentDetail();
+    if (live.Length > 0)
+    {
+        Console.WriteLine("live:    " + live);
+    }
+    return;
 }
 
 if (args.Contains("--print-filter"))
@@ -71,9 +100,14 @@ else
     text = GetSelection();
 }
 
+// Wiggle while something is already talking = stop only (don't restart the same line).
+// Clear last-read so the *next* wiggle on that selection plays again instead of
+// looking "broken" — SameAsLastRead used to swallow that second gesture.
 if (isWiggle && IsSpeaking())
 {
-    StopPrevious(isHook: false); // shake while it's talking = shut up; never restart the same text
+    StopPrevious(isHook: false);
+    ForgetLastRead();
+    SpeakStatus.Clear();
     return;
 }
 
@@ -85,19 +119,57 @@ if (string.IsNullOrWhiteSpace(text))
     return; // nothing to say: we just silenced the old speech, done
 }
 
-if (isWiggle && SameAsLastRead(text))
-{
-    return; // stale selection from earlier: an idle shake shouldn't re-read old text
-            // (the keyboard shortcut still re-reads deliberately)
-}
+// Same selection plays again on purpose (select-again, shortcut, or idle wiggle).
+// Accidental double-fire is handled by the wiggle detector's 1.5s cooldown, not by
+// forever-blocking the last hash — that felt like the app was broken.
 
 RememberLastRead(text);
 File.WriteAllText(PidFile(), $"{Environment.ProcessId} {(isHook ? "hook" : "manual")}");
 
-ISpeechEngine engine = settings.Engine == "google" ? new GoogleEngine() : new SpdEngine();
-if (!engine.Speak(text, settings) && engine is GoogleEngine)
+ISpeechEngine engine = settings.Engine switch
 {
-    new SpdEngine().Speak(text, settings); // google went quiet before a sound: offline voice takes it all
+    "inflect" => new InflectEngine(),
+    "spd" => new SpdEngine(),
+    _ => new GoogleEngine(),
+};
+if (!engine.Speak(text, settings))
+{
+    // primary went quiet: prefer google (nice) then the offline robot — and say so
+    string primary = settings.Engine;
+    if (engine is not GoogleEngine)
+    {
+        SpeakStatus.Alert($"{primary} failed — trying Google…");
+        if (!new GoogleEngine().Speak(text, settings))
+        {
+            SpeakStatus.Alert("Google failed — using offline voice");
+            new SpdEngine().Speak(text, settings);
+        }
+    }
+    else
+    {
+        SpeakStatus.Alert("Google failed — using offline voice");
+        new SpdEngine().Speak(text, settings);
+    }
+}
+
+static bool HasCmd(string cmd)
+{
+    try
+    {
+        var psi = new ProcessStartInfo("bash", $"-lc \"command -v {cmd}\"")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        using var p = Process.Start(psi)!;
+        string o = p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        return p.ExitCode == 0 && o.Trim().Length > 0;
+    }
+    catch (Exception)
+    {
+        return false;
+    }
 }
 
 static string PidFile() => Path.Combine(Path.GetTempPath(), "readaloud.pid");
@@ -107,7 +179,18 @@ static bool IsSpeaking()
     try
     {
         string[] parts = File.ReadAllText(PidFile()).Trim().Split(' ');
-        return Process.GetProcessById(int.Parse(parts[0])).ProcessName.Contains("ReadAloud");
+        int pid = int.Parse(parts[0]);
+        var p = Process.GetProcessById(pid);
+        if (p.HasExited)
+        {
+            return false;
+        }
+
+        // published binary is "ReadAloud"; be loose — a recycled pid of something else
+        // is rare and StopPrevious is still guarded the same way
+        string name = p.ProcessName;
+        return name.Contains("ReadAloud", StringComparison.OrdinalIgnoreCase)
+               || name.Contains("readaloud", StringComparison.OrdinalIgnoreCase);
     }
     catch (Exception)
     {
@@ -117,23 +200,25 @@ static bool IsSpeaking()
 
 static string LastReadFile() => Path.Combine(Path.GetTempPath(), "readaloud.last");
 
-static bool SameAsLastRead(string text)
-{
-    try
-    {
-        return File.ReadAllText(LastReadFile()) == Hash(text);
-    }
-    catch (Exception)
-    {
-        return false;
-    }
-}
-
 static void RememberLastRead(string text)
 {
     try
     {
         File.WriteAllText(LastReadFile(), Hash(text));
+    }
+    catch (Exception)
+    {
+    }
+}
+
+static void ForgetLastRead()
+{
+    try
+    {
+        if (File.Exists(LastReadFile()))
+        {
+            File.Delete(LastReadFile());
+        }
     }
     catch (Exception)
     {

@@ -113,16 +113,56 @@ Write-Host '[ok]   Start Menu shortcut + Startup shortcut (runs at every login).
 # sessions open. Wiggle or Ctrl+Win+S read on demand — that's the designed flow.
 # The exe still supports --claude-hook if someone wants to wire it by hand.)
 
-# ---- 5. run it ---------------------------------------------------------------------
+# ---- 5. settings seed (do not clobber an existing file) ----------------------------
+$SettingsDir = Join-Path $HOME '.config\readaloud'
+$SettingsFile = Join-Path $SettingsDir 'settings.json'
+if (-not (Test-Path $SettingsFile)) {
+    New-Item -ItemType Directory -Path $SettingsDir -Force | Out-Null
+    # defaults match Linux Settings.cs "normal" wiggle feel
+    $seed = @'
+{
+  "Speed": 2.5,
+  "Pitch": 1.0,
+  "Engine": "spd",
+  "GoogleLang": "en",
+  "SpdRate": 0,
+  "MuteClaude": true,
+  "WiggleEnabled": true,
+  "WigglePop": true,
+  "WiggleFeel": "normal",
+  "WiggleFlips": 5,
+  "WiggleWindowMs": 500,
+  "WiggleMinPx": 25,
+  "WiggleCooldownMs": 1800,
+  "Shortcut": "<Control><Super>s"
+}
+'@
+    Set-Content -Path $SettingsFile -Value $seed -Encoding UTF8
+    Write-Host "[ok]   Seeded $SettingsFile"
+}
+else {
+    Write-Host "[ok]   Settings already present: $SettingsFile"
+}
+
+# ---- 6. self-check + run -----------------------------------------------------------
+Write-Host '[..]   Running --self-check ...'
+& $Exe --self-check
+if ($LASTEXITCODE -ne 0) {
+    Write-Host '[!!]   self-check reported failures (continuing anyway)' -ForegroundColor Yellow
+}
+
 if (Get-Process -Name 'ReadAloud' -ErrorAction SilentlyContinue) {
     Write-Host '[--]   ReadAloud is already running - quit it from the tray icon to load the new build.'
 }
 else {
+    # resident process: tray + hotkey + wiggle (no --tray flag on Windows)
     Start-Process $Exe
     Write-Host '[ok]   ReadAloud started (speaker icon in the tray).'
 }
 
 Write-Host ''
 Write-Host 'Done. Select text anywhere and press Ctrl+Win+S, or shake the mouse left-right.' -ForegroundColor Green
-Write-Host "Settings file: $HOME\.config\readaloud\settings.json (the tray menu writes it)"
+Write-Host "  Exe:      $Exe"
+Write-Host "  Settings: $SettingsFile  (tray menu writes speed / wiggle feel)"
+Write-Host '  Wiggle feel: Sensitive / Normal / Firm / Stubborn  (edit WiggleFeel in settings, or tray when available)'
 Write-Host ''

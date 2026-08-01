@@ -90,7 +90,8 @@ static class Wiggle
                     continue;
                 }
                 Settings s = Current();
-                if (detector.Feed(value, Environment.TickCount64, s.WiggleFlips, s.WiggleWindowMs))
+                if (detector.Feed(value, Environment.TickCount64,
+                        s.WiggleFlips, s.WiggleWindowMs, s.WiggleMinPx, s.WiggleCooldownMs))
                 {
                     Trigger(s);
                 }
@@ -145,7 +146,7 @@ static class Wiggle
         try
         {
             var psi = new ProcessStartInfo(Environment.ProcessPath!);
-            psi.ArgumentList.Add("--wiggle"); // wiggle etiquette: stop if talking, skip stale text
+            psi.ArgumentList.Add("--wiggle"); // wiggle: stop if talking, else read selection (same text OK)
             Process.Start(psi);
         }
         catch (Exception e)
@@ -158,16 +159,15 @@ static class Wiggle
 // Pure logic, no I/O — exercised by `ReadAloud --wiggle-test`.
 sealed class WiggleDetector
 {
-    const int MinSegmentPx = 15;
-    const int CooldownMs = 1500;
-
     int dir;
     double travel;
-    long lastTrigger = -CooldownMs;
+    long lastTrigger = long.MinValue / 4; // first trigger always allowed
     readonly Queue<long> flips = new();
 
-    // feed one horizontal delta; true = that delta completed a wiggle
-    public bool Feed(int dx, long nowMs, int flipsToTrigger = 4, int windowMs = 600)
+    // feed one horizontal delta; true = that delta completed a wiggle.
+    // All thresholds come from Settings (tray → Wiggle → Sensitive/Normal/Firm/Stubborn).
+    public bool Feed(int dx, long nowMs,
+        int flipsToTrigger = 5, int windowMs = 500, int minSegmentPx = 25, int cooldownMs = 1800)
     {
         int s = Math.Sign(dx);
         if (s == 0)
@@ -181,14 +181,14 @@ sealed class WiggleDetector
         }
 
         bool triggered = false;
-        if (dir != 0 && travel >= MinSegmentPx)
+        if (dir != 0 && travel >= minSegmentPx)
         {
             flips.Enqueue(nowMs);
             while (flips.Count > 0 && nowMs - flips.Peek() > windowMs)
             {
                 flips.Dequeue();
             }
-            if (flips.Count >= flipsToTrigger && nowMs - lastTrigger > CooldownMs)
+            if (flips.Count >= flipsToTrigger && nowMs - lastTrigger > cooldownMs)
             {
                 lastTrigger = nowMs;
                 flips.Clear();
@@ -210,15 +210,18 @@ sealed class WiggleDetector
             ok &= cond;
         }
 
-        // a real shake: 5 strokes of 40px, alternating, 80ms apart -> triggers
+        // defaults match "normal" feel: 5 flips, 500ms window, 25px stroke, 1800ms cooldown
+        const int flips = 5, window = 500, minPx = 25, cool = 1800;
+
+        // a real shake: enough alternating 40px strokes inside the window -> triggers
         var d = new WiggleDetector();
         bool hit = false;
         int sign = 1;
-        for (int i = 0; i < 6; i++, sign = -sign)
+        for (int i = 0; i < 8; i++, sign = -sign)
         {
             for (int j = 0; j < 4; j++)
             {
-                hit |= d.Feed(sign * 10, i * 80 + j * 10);
+                hit |= d.Feed(sign * 10, i * 60 + j * 10, flips, window, minPx, cool);
             }
         }
         Check("deliberate shake triggers", hit);
@@ -228,7 +231,7 @@ sealed class WiggleDetector
         hit = false;
         for (int i = 0; i < 100; i++)
         {
-            hit |= d.Feed(25, i * 8);
+            hit |= d.Feed(25, i * 8, flips, window, minPx, cool);
         }
         Check("straight sweep never triggers", !hit);
 
@@ -238,27 +241,37 @@ sealed class WiggleDetector
         sign = 1;
         for (int i = 0; i < 10; i++, sign = -sign)
         {
-            hit |= d.Feed(sign * 40, i * 400);
+            hit |= d.Feed(sign * 40, i * 400, flips, window, minPx, cool);
         }
         Check("slow zigzag never triggers", !hit);
 
-        // tiny jitter (hand tremor, 3px strokes) -> never
+        // tiny jitter (hand tremor, 3px strokes) -> never (under minPx)
         d = new WiggleDetector();
         hit = false;
         sign = 1;
         for (int i = 0; i < 40; i++, sign = -sign)
         {
-            hit |= d.Feed(sign * 3, i * 30);
+            hit |= d.Feed(sign * 3, i * 30, flips, window, minPx, cool);
         }
         Check("small jitter never triggers", !hit);
+
+        // firm feel rejects a shake that "normal" would take (only 4 flips)
+        d = new WiggleDetector();
+        hit = false;
+        sign = 1;
+        for (int i = 0; i < 5; i++, sign = -sign)
+        {
+            hit |= d.Feed(sign * 40, i * 70, flipsToTrigger: 6, windowMs: 450, minSegmentPx: 35, cooldownMs: 2200);
+        }
+        Check("firm feel ignores light shake", !hit);
 
         // cooldown: two shakes back-to-back -> exactly one trigger until cooldown passes
         d = new WiggleDetector();
         int count = 0;
         sign = 1;
-        for (int i = 0; i < 12; i++, sign = -sign)
+        for (int i = 0; i < 16; i++, sign = -sign)
         {
-            if (d.Feed(sign * 40, i * 80))
+            if (d.Feed(sign * 40, i * 50, flips, window, minPx, cool))
             {
                 count++;
             }

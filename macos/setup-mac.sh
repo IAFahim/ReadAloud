@@ -131,7 +131,9 @@ Handy:
    $BIN --stop          stop talking now
    $BIN --stdin         echo "hello" | that
    $BIN --self-check    the pure-logic tests
-   Speed and mute live in ~/.config/readaloud/settings.json (Speed 2.5 = 500 words/minute).
+   Speed / mute / wiggle feel live in ~/.config/readaloud/settings.json
+     WiggleFeel: sensitive | normal | firm | stubborn
+     (also WiggleFlips, WiggleWindowMs, WiggleMinPx, WiggleCooldownMs)
    Voice: System Settings > Accessibility > Spoken Content.  \`say -v ?\` lists them all.
 
 REMINDER: this port compiles and its logic tests pass, but you are the first
