@@ -41,8 +41,22 @@ if [[ -n "${need// }" ]]; then
     need_sudo apt-get update -qq
     # shellcheck disable=SC2086
     need_sudo apt-get install -y $need
+  elif have pacman; then
+    # Arch / Omarchy: map the Debian names above to pacman packages
+    pkgs=""
+    # shellcheck disable=SC2086
+    for p in $need; do
+      case "$p" in
+        speech-dispatcher) pkgs="$pkgs speech-dispatcher" ;;
+        libnotify-bin)     pkgs="$pkgs libnotify" ;;
+        libglib2.0-bin)    pkgs="$pkgs glib2" ;;
+        *)                 pkgs="$pkgs $p" ;;
+      esac
+    done
+    # shellcheck disable=SC2086
+    need_sudo pacman -S --needed --noconfirm $pkgs
   else
-    echo "  no apt-get — install these by hand:$need" >&2
+    echo "  no apt-get/pacman — install these by hand:$need" >&2
     exit 1
   fi
 else

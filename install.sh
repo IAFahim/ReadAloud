@@ -124,6 +124,7 @@ chmod 755 "$SHARE/inflect_worker.py"
 
 # GNOME shortcut (absolute path so moving the repo doesn't silently break it)
 echo "==> shortcut + autostart"
+HYP_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
 if have gsettings && gsettings list-schemas 2>/dev/null | grep -qx "$BASE"; then
   cur=$(gsettings get "$BASE" custom-keybindings)
   if [[ "$cur" != *readaloud* ]]; then
@@ -141,6 +142,34 @@ if have gsettings && gsettings list-schemas 2>/dev/null | grep -qx "$BASE"; then
   got=$(gsettings get "$BASE.custom-keybinding:$KB_PATH" command | tr -d "'")
   [[ "$got" == "$BIN" ]] || die "gsettings command mismatch: got $got"
   echo "  bound $BINDING → $BIN"
+elif have hyprctl && [[ -f "$HYP_DIR/bindings.lua" ]]; then
+  # Omarchy / Hyprland: append marker-guarded bind + tray autostart (idempotent).
+  # SUPER+CTRL+S is Omarchy's "Share", so use a different key; M = mouth.
+  HYP_KEY='SUPER + CTRL + M'
+  if ! grep -q 'ReadAloud' "$HYP_DIR/bindings.lua"; then
+    cat >> "$HYP_DIR/bindings.lua" <<EOF
+
+-- ReadAloud: speak the selected text (added by install.sh)
+-- Note: Omarchy binds SUPER CTRL + S to "Share" — this uses a different key.
+o.bind("$HYP_KEY", "ReadAloud", "$BIN")
+EOF
+    echo "  hyprland: added $HYP_KEY → $BIN in $HYP_DIR/bindings.lua"
+  else
+    echo "  hyprland: ReadAloud already bound in $HYP_DIR/bindings.lua"
+  fi
+  if [[ -f "$HYP_DIR/autostart.lua" ]] && ! grep -q 'ReadAloud' "$HYP_DIR/autostart.lua"; then
+    cat >> "$HYP_DIR/autostart.lua" <<EOF
+
+-- ReadAloud tray: speaker icon in the bar (added by install.sh)
+o.launch_on_start("$BIN --tray")
+EOF
+    echo "  hyprland: added tray autostart to $HYP_DIR/autostart.lua"
+  fi
+  if have omarchy && omarchy menu keybindings --print 2>/dev/null | grep -F "$HYP_KEY" | grep -qv ReadAloud; then
+    echo "  warn: $HYP_KEY is already bound to something else — edit $HYP_DIR/bindings.lua"
+  fi
+  hyprctl reload >/dev/null 2>&1 || true
+  echo "  bound $HYP_KEY → $BIN (hyprland)"
 else
   echo "  warn: gsettings/GNOME media-keys not available — bind a hotkey yourself to:"
   echo "        $BIN"
@@ -202,7 +231,13 @@ PY
 # if the input group was granted but this login session predates it, sg gives the
 # tray mouse access (wiggle) right now instead of waiting for the next login
 if grep -q "^input:.*\b${USER}\b" /etc/group 2>/dev/null && ! id -nG | tr ' ' '\n' | grep -qx input; then
-  sg input -c "setsid '$BIN' --tray >/dev/null 2>&1 < /dev/null &"
+  if have sg; then
+    sg input -c "setsid '$BIN' --tray >/dev/null 2>&1 < /dev/null &"
+  else
+    # Arch / Omarchy ship no sg — start without mouse access; wiggle after re-login
+    echo "  warn: 'sg' missing — tray starts without wiggle until you log out and back in"
+    setsid "$BIN" --tray >/dev/null 2>&1 < /dev/null &
+  fi
 else
   setsid "$BIN" --tray >/dev/null 2>&1 < /dev/null &
 fi

@@ -79,6 +79,19 @@ cd ReadAloud && ./install.sh
 downloads the Inflect voice (skip with `READALOUD_SKIP_INFLECT=1`), and starts the tray.
 No Claude Code hook is installed.
 
+## Omarchy / Hyprland
+
+Works on Arch-based Hyprland setups too (tested on Omarchy). `setup.sh` installs
+the packages via pacman, and when GNOME media-keys aren't available `install.sh`
+appends `o.bind("SUPER + CTRL + M", "ReadAloud", …)` to `~/.config/hypr/bindings.lua`
+(`SUPER+CTRL+S` is Omarchy's Share key) and the tray to `autostart.lua` — both
+marker-guarded and idempotent. Wiggle still needs the `input` group plus a
+re-login. Re-running `install.sh` restarts the tray; on Hyprland give the fresh
+tray mouse access with `sudo setpriv --reuid $USER --regid $(id -g) --init-groups
+env HOME=$HOME WAYLAND_DISPLAY=$WAYLAND_DISPLAY XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR
+DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS setsid --fork
+publish/ReadAloud --tray` if you don't want to wait for the next login.
+
 ## Where next
 
 See `IDEAS.md` — 15 ranked upgrades (speech daemon, per-agent Piper voices,
