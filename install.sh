@@ -238,18 +238,21 @@ time.sleep(0.5)
 PY
 
 # if the input group was granted but this login session predates it, sg gives the
-# tray mouse access (wiggle) right now instead of waiting for the next login
+# tray mouse access (wiggle) right now instead of waiting for the next login.
+# Tray output goes to a log, not /dev/null — silent wiggle failures are miserable to debug.
+TRAY_LOG="$SHARE/tray.log"
 if grep -q "^input:.*\b${USER}\b" /etc/group 2>/dev/null && ! id -nG | tr ' ' '\n' | grep -qx input; then
   if have sg; then
-    sg input -c "setsid '$BIN' --tray >/dev/null 2>&1 < /dev/null &"
+    sg input -c "setsid '$BIN' --tray >>'$TRAY_LOG' 2>&1 < /dev/null &"
   else
     # Arch / Omarchy ship no sg — start without mouse access; wiggle after re-login
     echo "  warn: 'sg' missing — tray starts without wiggle until you log out and back in"
-    setsid "$BIN" --tray >/dev/null 2>&1 < /dev/null &
+    setsid "$BIN" --tray >>"$TRAY_LOG" 2>&1 < /dev/null &
   fi
 else
-  setsid "$BIN" --tray >/dev/null 2>&1 < /dev/null &
+  setsid "$BIN" --tray >>"$TRAY_LOG" 2>&1 < /dev/null &
 fi
+echo "  tray log: $TRAY_LOG"
 sleep 0.4
 if ps -eo args= | grep -F -- "$BIN --tray" | grep -vq grep; then
   echo "  tray running"

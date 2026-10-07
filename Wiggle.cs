@@ -14,6 +14,8 @@ static class Wiggle
 {
     static Settings cached = Settings.Load();
     static DateTime stamp;
+    static readonly HashSet<string> watching = new();
+    static readonly object gate = new();
 
     // settings re-read only when the file's mtime moves — stat on direction flips, never per event
     static Settings Current()
@@ -35,8 +37,33 @@ static class Wiggle
 
     public static void Start()
     {
+        Rescan(); // first pass right away
+        new Thread(RescanLoop) { IsBackground = true, Name = "wiggle:rescan" }.Start();
+    }
+
+    // /proc/bus/input/devices is read once per pass on purpose: event numbers move when a
+    // mouse is replugged or Bluetooth reconnects, and a dead watcher never comes back on
+    // its own — so keep picking up new nodes, and re-arm nodes whose reader exited.
+    static void RescanLoop()
+    {
+        while (true)
+        {
+            Thread.Sleep(15000);
+            Rescan();
+        }
+    }
+
+    static void Rescan()
+    {
         foreach (string dev in MouseEventNodes())
         {
+            lock (gate)
+            {
+                if (!watching.Add(dev))
+                {
+                    continue;
+                }
+            }
             new Thread(() => Watch(dev)) { IsBackground = true, Name = $"wiggle:{dev}" }.Start();
         }
     }
@@ -76,35 +103,46 @@ static class Wiggle
     {
         try
         {
-            using var fs = new FileStream(dev, FileMode.Open, FileAccess.Read);
-            Console.Error.WriteLine($"wiggle: watching {dev}");
-            var detector = new WiggleDetector();
-            var buf = new byte[24]; // struct input_event on 64-bit: 16B timeval + type + code + value
-            while (ReadFull(fs, buf))
+            try
             {
-                ushort type = BitConverter.ToUInt16(buf, 16);
-                ushort code = BitConverter.ToUInt16(buf, 18);
-                int value = BitConverter.ToInt32(buf, 20);
-                if (type != 2 || code != 0) // EV_REL REL_X only
+                using var fs = new FileStream(dev, FileMode.Open, FileAccess.Read);
+                Console.Error.WriteLine($"wiggle: watching {dev}");
+                var detector = new WiggleDetector();
+                var buf = new byte[24]; // struct input_event on 64-bit: 16B timeval + type + code + value
+                while (ReadFull(fs, buf))
                 {
-                    continue;
-                }
-                Settings s = Current();
-                if (detector.Feed(value, Environment.TickCount64,
-                        s.WiggleFlips, s.WiggleWindowMs, s.WiggleMinPx, s.WiggleCooldownMs))
-                {
-                    Trigger(s);
+                    ushort type = BitConverter.ToUInt16(buf, 16);
+                    ushort code = BitConverter.ToUInt16(buf, 18);
+                    int value = BitConverter.ToInt32(buf, 20);
+                    if (type != 2 || code != 0) // EV_REL REL_X only
+                    {
+                        continue;
+                    }
+                    Settings s = Current();
+                    if (detector.Feed(value, Environment.TickCount64,
+                            s.WiggleFlips, s.WiggleWindowMs, s.WiggleMinPx, s.WiggleCooldownMs))
+                    {
+                        Trigger(s);
+                    }
                 }
             }
+            catch (UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine(
+                    $"wiggle: no read permission on {dev} — run: sudo usermod -aG input $USER  then log out and back in");
+            }
+            catch (Exception e)
+            {
+                Console.Error.WriteLine($"wiggle: {dev}: {e.Message}");
+            }
         }
-        catch (UnauthorizedAccessException)
+        finally
         {
-            Console.Error.WriteLine(
-                $"wiggle: no read permission on {dev} — run: sudo usermod -aG input $USER  then log out and back in");
-        }
-        catch (Exception e)
-        {
-            Console.Error.WriteLine($"wiggle: {dev}: {e.Message}");
+            // reader exited (device unplugged or failed) — let the next rescan re-arm it
+            lock (gate)
+            {
+                watching.Remove(dev);
+            }
         }
     }
 
