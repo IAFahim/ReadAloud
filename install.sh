@@ -125,6 +125,7 @@ chmod 755 "$SHARE/inflect_worker.py"
 # GNOME shortcut (absolute path so moving the repo doesn't silently break it)
 echo "==> shortcut + autostart"
 HYP_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
+HYP=0
 if have gsettings && gsettings list-schemas 2>/dev/null | grep -qx "$BASE"; then
   cur=$(gsettings get "$BASE" custom-keybindings)
   if [[ "$cur" != *readaloud* ]]; then
@@ -143,6 +144,7 @@ if have gsettings && gsettings list-schemas 2>/dev/null | grep -qx "$BASE"; then
   [[ "$got" == "$BIN" ]] || die "gsettings command mismatch: got $got"
   echo "  bound $BINDING → $BIN"
 elif have hyprctl && [[ -f "$HYP_DIR/bindings.lua" ]]; then
+  HYP=1
   # Omarchy / Hyprland: append marker-guarded bind + tray autostart (idempotent).
   # SUPER+CTRL+S is Omarchy's "Share", so use a different key; M = mouth.
   HYP_KEY='SUPER + CTRL + M'
@@ -175,8 +177,14 @@ else
   echo "        $BIN"
 fi
 
-mkdir -p "$(dirname "$AUTOSTART")"
-cat > "$AUTOSTART" <<EOF
+if [[ "$HYP" == 1 ]]; then
+  # Hyprland autostarts the tray via autostart.lua — drop the GNOME entry, else
+  # both fire after a reboot and two wiggle listeners cancel each other out
+  rm -f "$AUTOSTART"
+  echo "  autostart → $HYP_DIR/autostart.lua (GNOME .desktop removed)"
+else
+  mkdir -p "$(dirname "$AUTOSTART")"
+  cat > "$AUTOSTART" <<EOF
 [Desktop Entry]
 Type=Application
 Name=ReadAloud tray
@@ -185,10 +193,11 @@ Exec=$BIN --tray
 X-GNOME-Autostart-enabled=true
 NoDisplay=true
 EOF
-# verify desktop Exec points at a real binary
-exec_bin=$(grep -E '^Exec=' "$AUTOSTART" | head -1 | cut -d= -f2- | awk '{print $1}')
-[[ -x "$exec_bin" ]] || die "autostart Exec not executable: $exec_bin"
-echo "  autostart → $AUTOSTART"
+  # verify desktop Exec points at a real binary
+  exec_bin=$(grep -E '^Exec=' "$AUTOSTART" | head -1 | cut -d= -f2- | awk '{print $1}')
+  [[ -x "$exec_bin" ]] || die "autostart Exec not executable: $exec_bin"
+  echo "  autostart → $AUTOSTART"
+fi
 
 # Inflect local neural voice
 if [[ "${READALOUD_SKIP_INFLECT:-}" != "1" ]]; then
