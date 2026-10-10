@@ -244,9 +244,13 @@ TRAY_LOG="$SHARE/tray.log"
 if grep -q "^input:.*\b${USER}\b" /etc/group 2>/dev/null && ! id -nG | tr ' ' '\n' | grep -qx input; then
   if have sg; then
     sg input -c "setsid '$BIN' --tray >>'$TRAY_LOG' 2>&1 < /dev/null &"
+  elif have newgrp; then
+    # Arch / Omarchy ship no sg but do have newgrp — feed it the command on stdin
+    newgrp input <<EOF
+setsid '$BIN' --tray >>'$TRAY_LOG' 2>&1 < /dev/null &
+EOF
   else
-    # Arch / Omarchy ship no sg — start without mouse access; wiggle after re-login
-    echo "  warn: 'sg' missing — tray starts without wiggle until you log out and back in"
+    echo "  warn: no sg/newgrp — tray starts without wiggle until you log out and back in"
     setsid "$BIN" --tray >>"$TRAY_LOG" 2>&1 < /dev/null &
   fi
 else
